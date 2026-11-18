@@ -157,16 +157,30 @@ pg.inv=()=>{const ps=DB.produk,low=ps.filter(p=>stat(p.id)[0]=='Menipis').length
 A.hint=()=>{};
 
 /* reports */
+let RJ='',RL='',RP='',RQ='';
 const defRD=()=>moves().reduce((m,x)=>x.t.slice(0,10)<m?x.t.slice(0,10):m,ymd(0));
-const repRows=()=>moves().filter(x=>{const d=x.t.slice(0,10);return d>=(RD||defRD())&&d<=RS}).map(x=>{const p=by(DB.produk,'id',x.p);return {d:x.t.slice(5,10).split('-').reverse().join('/'),j:x.j,sku:p.sku,n:p.nama,l:by(DB.lok,'id',x.l).kode,q:x.q}});
-pg.rep=()=>{const adm=U.role=='admin',R=repRows(),sm=j=>R.filter(x=>x.j==j).reduce((a,x)=>a+x.q,0);
+const repRows=()=>moves().filter(x=>{
+ const d=x.t.slice(0,10);
+ if(d<(RD||defRD())||d>RS)return false;
+ if(RJ&&x.j!=RJ)return false;
+ if(RL&&String(x.l)!=String(RL))return false;
+ if(RP&&String(x.p)!=String(RP))return false;
+ if(RQ){const p=by(DB.produk,'id',x.p),l=by(DB.lok,'id',x.l);if(!`${p.sku} ${p.nama} ${l.kode} ${x.j}`.toLowerCase().includes(RQ.toLowerCase()))return false}
+ return true;
+}).map(x=>{const p=by(DB.produk,'id',x.p);return {d:x.t.slice(5,10).split('-').reverse().join('/'),j:x.j,sku:p.sku,n:p.nama,l:by(DB.lok,'id',x.l).kode,q:x.q}});
+const repBody=()=>{const R=repRows(),sm=j=>R.filter(x=>x.j==j).reduce((a,x)=>a+x.q,0);
+ return `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 style="margin:0">Inventory Movement Preview</h3><span class=sub style="margin:0">Menampilkan ${R.length} transaksi</span></div><div class="stats s3" style="margin:8px 0"><div class=st><small>Inbound</small><b>${sm('Inbound')}</b><small>pcs</small></div><div class=st><small>Outbound</small><b>${sm('Outbound')}</b><small>pcs</small></div><div class=st><small>Reject</small><b>${sm('Reject')}</b><small>pcs</small></div></div>${tbl(['Tanggal','Jenis Mutasi','SKU','Barang','Lokasi Rak','Qty'],R.map(x=>[x.d,`<span style="${x.j=='Reject'?'color:var(--bad)':''}">${x.j}</span>`,x.sku,esc(x.n),x.l,x.q]))}`};
+pg.rep=()=>{const adm=U.role=='admin';
  return hdr('Laporan Inventaris',adm?'Filter dan export riwayat mutasi inventaris.':'Pantau riwayat mutasi inventaris pada periode yang dipilih.')+
- `<form class="inl noprint" onsubmit="A.lb(event)"><label>Start Date<input id=ld type=date value="${RD||defRD()}"></label><label>End Date<input id=ls type=date value="${RS}"></label><button class=btn>${adm?'Generate Report':'Tampilkan'}</button>${adm?`<button type=button class="btn g2" onclick="window.print()">PDF</button><button type=button class="btn g" onclick="A.csv()">Excel</button>`:''}</form>
- <div class=card><h3>Inventory Movement Preview</h3><div class="stats s3" style="margin:8px 0"><div class=st><small>Inbound</small><b>${sm('Inbound')}</b><small>pcs</small></div><div class=st><small>Outbound</small><b>${sm('Outbound')}</b><small>pcs</small></div><div class=st><small>Reject</small><b>${sm('Reject')}</b><small>pcs</small></div></div>${tbl(['Tanggal','Jenis Mutasi','SKU','Barang','Lokasi Rak','Qty'],R.map(x=>[x.d,`<span style="${x.j=='Reject'?'color:var(--bad)':''}">${x.j}</span>`,x.sku,esc(x.n),x.l,x.q]))}</div>`};
+ `<form class="inl noprint" style="flex-wrap:wrap" onsubmit="A.lb(event)"><label>Start Date<input id=ld type=date value="${RD||defRD()}" onchange="A.lf()"></label><label>End Date<input id=ls type=date value="${RS}" onchange="A.lf()"></label><label>Jenis Mutasi<select id=lj onchange="A.lf()"><option value="">Semua Jenis</option>${['Inbound','Outbound','Reject'].map(x=>`<option value="${x}" ${x==RJ?'selected':''}>${x}</option>`).join('')}</select></label><label>Produk / SKU<select id=lp_rep onchange="A.lf()"><option value="">Semua Produk</option>${DB.produk.map(p=>`<option value="${p.id}" ${String(p.id)==String(RP)?'selected':''}>${esc(p.sku+' - '+p.nama)}</option>`).join('')}</select></label><label>Lokasi Rak<select id=ll onchange="A.lf()"><option value="">Semua Rak</option>${DB.lok.map(l=>`<option value="${l.id}" ${String(l.id)==String(RL)?'selected':''}>${esc(l.kode)}</option>`).join('')}</select></label><label>Cari Kata Kunci<input id=lq type=text placeholder="SKU / barang / rak..." value="${esc(RQ)}" oninput="A.lf(1)"></label><button class=btn>${adm?'Generate Report':'Tampilkan'}</button><button type=button class=lk onclick="A.rf()">Reset</button>${adm?`<button type=button class="btn g2" onclick="window.print()">PDF</button><button type=button class="btn g" onclick="A.csv()">Excel</button>`:''}</form>
+ <div class=card id=rep_out>${repBody()}</div>`};
+A.lf=(live)=>{const d=val('ld'),s=val('ls');if(!live&&(!d||!s||d>s))return toast('Pilih periode yang valid. Tanggal awal tidak boleh setelah tanggal akhir.',1);
+ if(d&&s&&d<=s){RD=d;RS=s}RJ=val('lj');RP=val('lp_rep');RL=val('ll');RQ=val('lq');const out=$('#rep_out');if(out)out.innerHTML=repBody()};
 A.lb=e=>{e.preventDefault();const d=val('ld'),s=val('ls');if(!d||!s||d>s)return toast('Pilih periode yang valid. Tanggal awal tidak boleh setelah tanggal akhir.',1);
- RD=d;RS=s;if(U.role=='admin')toast('Laporan berhasil dibuat.');draw()};
-A.csv=()=>{const r=repRows();if(!r.length)return toast('Tidak ada data pada periode ini.',1);
- const c='Tanggal,Jenis,SKU,Barang,Rak,Qty\n'+r.map(x=>[x.d,x.j,x.sku,x.n,x.l,x.q].join(',')).join('\n');
+ RD=d;RS=s;RJ=val('lj');RP=val('lp_rep');RL=val('ll');RQ=val('lq');if(U.role=='admin')toast('Laporan berhasil dibuat.');draw()};
+A.rf=()=>{RD=defRD();RS=ymd(0);RJ='';RL='';RP='';RQ='';toast('Filter laporan direset.');draw()};
+A.csv=()=>{const r=repRows();if(!r.length)return toast('Tidak ada data pada filter ini.',1);
+ const c='Tanggal,Jenis,SKU,Barang,Rak,Qty\n'+r.map(x=>[x.d,x.j,x.sku,'"'+String(x.n).replace(/"/g,'""')+'"',x.l,x.q].join(',')).join('\n');
  try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:'text/csv'}));a.download='laporan-inventaris.csv';a.click()}catch(e){toast('Export tidak didukung di tampilan ini.',1)}};
 
 function draw(){const r=$('#app');if(!U){r.innerHTML=loginV();return}
